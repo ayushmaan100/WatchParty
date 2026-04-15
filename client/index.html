@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WatchParty — Lobby</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="lobby-container">
+    <h1 class="logo">🎬 WatchParty</h1>
+    <p class="tagline">Watch together, anywhere.</p>
+
+    <div class="card">
+      <h2>Create a Room</h2>
+      <p class="hint">Pick a video from the server, share the room link.</p>
+
+      <div class="form-group">
+        <label for="videoSelect">Video File</label>
+        <select id="videoSelect">
+          <option value="">— Loading videos... —</option>
+        </select>
+      </div>
+
+      <button id="createBtn" class="btn-primary" disabled>
+        Create Room
+      </button>
+    </div>
+
+    <div class="card">
+      <h2>Join a Room</h2>
+      <p class="hint">Got a room ID? Enter it below.</p>
+
+      <div class="form-group">
+        <label for="roomIdInput">Room ID</label>
+        <input
+          type="text"
+          id="roomIdInput"
+          placeholder="e.g. a1b2c3d4"
+          maxlength="8"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+
+      <button id="joinBtn" class="btn-secondary">
+        Join Room
+      </button>
+    </div>
+
+    <div id="errorMsg" class="error hidden"></div>
+  </div>
+
+  <script>
+    // ── Load available videos from the server ──────────────────────────────────
+    async function loadVideos() {
+      try {
+        const res  = await fetch('/api/videos');
+        const data = await res.json();
+        const sel  = document.getElementById('videoSelect');
+
+        if (data.videos.length === 0) {
+          sel.innerHTML = '<option value="">— No videos found. Add .mp4 to /uploads —</option>';
+          return;
+        }
+
+        sel.innerHTML = '<option value="">— Select a video —</option>' +
+          data.videos.map(v => `<option value="${v}">${v}</option>`).join('');
+
+        document.getElementById('createBtn').disabled = false;
+      } catch (err) {
+        document.getElementById('errorMsg').textContent = 'Failed to load videos. Is the server running?';
+        document.getElementById('errorMsg').classList.remove('hidden');
+      }
+    }
+
+    // ── Create Room ────────────────────────────────────────────────────────────
+    document.getElementById('createBtn').addEventListener('click', async () => {
+      const videoFilename = document.getElementById('videoSelect').value;
+      if (!videoFilename) {
+        showError('Please select a video first.');
+        return;
+      }
+
+      try {
+        const res  = await fetch('/api/rooms', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ videoFilename }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          showError(data.error || 'Failed to create room.');
+          return;
+        }
+
+        // Redirect to the room page
+        window.location.href = `/room.html?roomId=${data.roomId}`;
+      } catch (err) {
+        showError('Server error. Check if the server is running.');
+      }
+    });
+
+    // ── Join Room ──────────────────────────────────────────────────────────────
+    document.getElementById('joinBtn').addEventListener('click', () => {
+      const roomId = document.getElementById('roomIdInput').value.trim();
+      if (!roomId) {
+        showError('Please enter a Room ID.');
+        return;
+      }
+      window.location.href = `/room.html?roomId=${roomId}`;
+    });
+
+    // Allow pressing Enter in the room ID input
+    document.getElementById('roomIdInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('joinBtn').click();
+    });
+
+    function showError(msg) {
+      const el = document.getElementById('errorMsg');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 4000);
+    }
+
+    // Load videos on page load
+    loadVideos();
+  </script>
+</body>
+</html>

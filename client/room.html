@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WatchParty — Room</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <!-- Loading state while we verify the room exists -->
+  <div id="loadingScreen" class="loading-screen">
+    <div class="spinner"></div>
+    <p>Joining room...</p>
+  </div>
+
+  <!-- Error state — room not found, etc. -->
+  <div id="errorScreen" class="error-screen hidden">
+    <h2>❌ Room Not Found</h2>
+    <p id="errorDetail">This room doesn't exist or has expired.</p>
+    <a href="/" class="btn-primary">Back to Lobby</a>
+  </div>
+
+  <!-- Main watch room -->
+  <div id="watchRoom" class="watch-room hidden">
+    <header class="room-header">
+      <a href="/" class="back-link">← Lobby</a>
+      <div class="room-info">
+        <span class="room-id-label">Room: </span>
+        <span id="roomIdDisplay" class="room-id-value"></span>
+        <button id="copyLinkBtn" class="btn-copy" title="Copy room link">📋 Copy Link</button>
+      </div>
+      <div class="room-meta">
+        <span id="videoTitle" class="video-title"></span>
+      </div>
+    </header>
+
+    <main class="room-main">
+      <!-- Video Player -->
+      <div class="player-wrapper">
+        <video
+          id="videoPlayer"
+          controls
+          preload="metadata"
+        >
+          Your browser does not support HTML5 video.
+        </video>
+
+        <!-- Overlay shown when syncing (Phase 2) -->
+        <div id="syncOverlay" class="sync-overlay hidden">
+          <div class="sync-message">⏳ Syncing...</div>
+        </div>
+      </div>
+
+      <!-- Sidebar: Chat (Phase 2) + Room Info -->
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <h3>Room Info</h3>
+          <div class="info-row">
+            <span class="info-label">Room ID</span>
+            <span id="sidebarRoomId" class="info-value mono"></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Video</span>
+            <span id="sidebarVideoName" class="info-value"></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Members</span>
+            <span id="sidebarMemberCount" class="info-value">—</span>
+          </div>
+        </div>
+
+        <!-- Chat placeholder — wired up in Phase 2 -->
+        <div class="sidebar-section chat-section">
+          <h3>Chat <span class="coming-soon">(Phase 2)</span></h3>
+          <div id="chatMessages" class="chat-messages">
+            <div class="system-msg">Chat will be enabled in Phase 2.</div>
+          </div>
+          <div class="chat-input-row">
+            <input
+              type="text"
+              id="chatInput"
+              placeholder="Type a message..."
+              disabled
+            />
+            <button id="chatSendBtn" class="btn-send" disabled>Send</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/js/videoPlayer.js"></script>
+  <script>
+    // ── Bootstrap: read roomId from URL, fetch room info ──────────────────────
+    const params = new URLSearchParams(window.location.search);
+    const roomId = params.get('roomId');
+
+    if (!roomId) {
+      showError('No room ID in URL.');
+    } else {
+      initRoom(roomId);
+    }
+
+    async function initRoom(roomId) {
+      try {
+        const res  = await fetch(`/api/rooms/${roomId}`);
+        const room = await res.json();
+
+        if (!res.ok) {
+          showError(room.error || 'Room not found.');
+          return;
+        }
+
+        // Room found — set up the UI
+        document.getElementById('roomIdDisplay').textContent    = room.id;
+        document.getElementById('sidebarRoomId').textContent    = room.id;
+        document.getElementById('sidebarVideoName').textContent = room.videoFilename;
+        document.getElementById('videoTitle').textContent       = room.videoFilename;
+        document.title = `WatchParty — ${room.videoFilename}`;
+
+        // Initialize the video player
+        const player = new VideoPlayer('videoPlayer', room.videoFilename);
+        player.init();
+
+        // Hide loading, show room
+        document.getElementById('loadingScreen').classList.add('hidden');
+        document.getElementById('watchRoom').classList.remove('hidden');
+
+      } catch (err) {
+        showError('Failed to connect to server.');
+      }
+    }
+
+    // ── Copy room link to clipboard ────────────────────────────────────────────
+    document.getElementById('copyLinkBtn').addEventListener('click', () => {
+      const link = window.location.href;
+      navigator.clipboard.writeText(link).then(() => {
+        const btn = document.getElementById('copyLinkBtn');
+        btn.textContent = '✅ Copied!';
+        setTimeout(() => btn.textContent = '📋 Copy Link', 2000);
+      });
+    });
+
+    function showError(detail) {
+      document.getElementById('loadingScreen').classList.add('hidden');
+      document.getElementById('errorDetail').textContent = detail;
+      document.getElementById('errorScreen').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
