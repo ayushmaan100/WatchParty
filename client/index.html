@@ -13,46 +13,78 @@
 
     <div class="card">
       <h2>Create a Room</h2>
-      <p class="hint">Pick a video from the server, share the room link.</p>
 
-      <div class="form-group">
-        <label for="videoSelect">Video File</label>
-        <select id="videoSelect">
-          <option value="">— Loading videos... —</option>
-        </select>
+      <!-- Mode tabs -->
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="local">📁 Local Video</button>
+        <button class="mode-tab"        data-mode="youtube">▶️ YouTube</button>
       </div>
 
-      <button id="createBtn" class="btn-primary" disabled>
-        Create Room
-      </button>
+      <!-- Local video panel -->
+      <div id="localPanel" class="mode-panel">
+        <div class="form-group">
+          <label for="videoSelect">Video File on Server</label>
+          <select id="videoSelect">
+            <option value="">— Loading... —</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- YouTube panel -->
+      <div id="youtubePanel" class="mode-panel hidden">
+        <div class="form-group">
+          <label for="youtubeUrl">YouTube URL</label>
+          <input
+            type="url"
+            id="youtubeUrl"
+            placeholder="https://youtube.com/watch?v=..."
+            autocomplete="off"
+          />
+        </div>
+        <p class="hint">
+          ⚠️ Video must be public and allow embedding. Most YouTube videos work.
+          Age-restricted and some music videos do not.
+        </p>
+      </div>
+
+      <button id="createBtn" class="btn-primary" disabled>Create Room</button>
+      <div id="createError" class="error hidden"></div>
     </div>
 
     <div class="card">
       <h2>Join a Room</h2>
-      <p class="hint">Got a room ID? Enter it below.</p>
-
+      <p class="hint">Have a room ID? Enter it below.</p>
       <div class="form-group">
         <label for="roomIdInput">Room ID</label>
-        <input
-          type="text"
-          id="roomIdInput"
-          placeholder="e.g. a1b2c3d4"
-          maxlength="8"
-          autocomplete="off"
-          spellcheck="false"
-        />
+        <input type="text" id="roomIdInput"
+               placeholder="e.g. a1b2c3d4" maxlength="8"
+               autocomplete="off" spellcheck="false" />
       </div>
-
-      <button id="joinBtn" class="btn-secondary">
-        Join Room
-      </button>
+      <button id="joinBtn" class="btn-secondary">Join Room</button>
     </div>
 
     <div id="errorMsg" class="error hidden"></div>
   </div>
 
   <script>
-    // ── Load available videos from the server ──────────────────────────────────
+    let currentMode = 'local';
+
+    // ── Mode tabs ──────────────────────────────────────────────────────────────
+    document.querySelectorAll('.mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        currentMode = tab.dataset.mode;
+
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        document.getElementById('localPanel').classList.toggle('hidden',   currentMode !== 'local');
+        document.getElementById('youtubePanel').classList.toggle('hidden', currentMode !== 'youtube');
+
+        updateCreateButton();
+      });
+    });
+
+    // ── Load local videos ──────────────────────────────────────────────────────
     async function loadVideos() {
       try {
         const res  = await fetch('/api/videos');
@@ -60,71 +92,80 @@
         const sel  = document.getElementById('videoSelect');
 
         if (data.videos.length === 0) {
-          sel.innerHTML = '<option value="">— No videos found. Add .mp4 to /uploads —</option>';
-          return;
+          sel.innerHTML = '<option value="">— No videos in /uploads —</option>';
+        } else {
+          sel.innerHTML = '<option value="">— Select a video —</option>' +
+            data.videos.map(v => `<option value="${v}">${v}</option>`).join('');
         }
-
-        sel.innerHTML = '<option value="">— Select a video —</option>' +
-          data.videos.map(v => `<option value="${v}">${v}</option>`).join('');
-
-        document.getElementById('createBtn').disabled = false;
-      } catch (err) {
-        document.getElementById('errorMsg').textContent = 'Failed to load videos. Is the server running?';
-        document.getElementById('errorMsg').classList.remove('hidden');
+        updateCreateButton();
+      } catch {
+        document.getElementById('videoSelect').innerHTML =
+          '<option value="">— Server unreachable —</option>';
       }
     }
 
-    // ── Create Room ────────────────────────────────────────────────────────────
-    document.getElementById('createBtn').addEventListener('click', async () => {
-      const videoFilename = document.getElementById('videoSelect').value;
-      if (!videoFilename) {
-        showError('Please select a video first.');
-        return;
+    function updateCreateButton() {
+      const btn = document.getElementById('createBtn');
+      if (currentMode === 'local') {
+        btn.disabled = !document.getElementById('videoSelect').value;
+      } else {
+        btn.disabled = !document.getElementById('youtubeUrl').value.trim();
       }
+    }
+
+    document.getElementById('videoSelect').addEventListener('change', updateCreateButton);
+    document.getElementById('youtubeUrl').addEventListener('input',   updateCreateButton);
+
+    // ── Create room ────────────────────────────────────────────────────────────
+    document.getElementById('createBtn').addEventListener('click', async () => {
+      const btn  = document.getElementById('createBtn');
+      btn.disabled   = true;
+      btn.textContent = 'Creating...';
+
+      const body = currentMode === 'local'
+        ? { videoFilename: document.getElementById('videoSelect').value }
+        : { youtubeUrl:    document.getElementById('youtubeUrl').value.trim() };
 
       try {
         const res  = await fetch('/api/rooms', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ videoFilename }),
+          body:    JSON.stringify(body),
         });
         const data = await res.json();
 
         if (!res.ok) {
-          showError(data.error || 'Failed to create room.');
+          showError(data.error || 'Failed to create room.', 'createError');
+          btn.disabled    = false;
+          btn.textContent = 'Create Room';
           return;
         }
 
-        // Redirect to the room page
         window.location.href = `/room.html?roomId=${data.roomId}`;
-      } catch (err) {
-        showError('Server error. Check if the server is running.');
+      } catch {
+        showError('Server error.', 'createError');
+        btn.disabled    = false;
+        btn.textContent = 'Create Room';
       }
     });
 
-    // ── Join Room ──────────────────────────────────────────────────────────────
+    // ── Join room ──────────────────────────────────────────────────────────────
     document.getElementById('joinBtn').addEventListener('click', () => {
       const roomId = document.getElementById('roomIdInput').value.trim();
-      if (!roomId) {
-        showError('Please enter a Room ID.');
-        return;
-      }
+      if (!roomId) return showError('Please enter a Room ID.', 'errorMsg');
       window.location.href = `/room.html?roomId=${roomId}`;
     });
 
-    // Allow pressing Enter in the room ID input
-    document.getElementById('roomIdInput').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') document.getElementById('joinBtn').click();
-    });
+    document.getElementById('roomIdInput').addEventListener('keydown',
+      e => e.key === 'Enter' && document.getElementById('joinBtn').click());
 
-    function showError(msg) {
-      const el = document.getElementById('errorMsg');
+    function showError(msg, id) {
+      const el = document.getElementById(id);
       el.textContent = msg;
       el.classList.remove('hidden');
-      setTimeout(() => el.classList.add('hidden'), 4000);
+      setTimeout(() => el.classList.add('hidden'), 5000);
     }
 
-    // Load videos on page load
     loadVideos();
   </script>
 </body>

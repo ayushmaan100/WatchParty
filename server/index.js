@@ -30,19 +30,53 @@ app.get('/api/videos', (req, res) => {
   } catch { res.json({ videos: [] }); }
 });
 
+// Replace the POST /api/rooms route
+
 app.post('/api/rooms', (req, res) => {
-  const { videoFilename } = req.body;
-  if (!videoFilename) return res.status(400).json({ error: 'videoFilename is required' });
-  const videoPath = path.join(__dirname, '../uploads', videoFilename);
-  if (!fs.existsSync(videoPath)) return res.status(404).json({ error: `Video not found: ${videoFilename}` });
-  const room = createRoom(videoFilename);
-  res.json({ roomId: room.id, videoFilename: room.videoFilename });
+  const { videoFilename, youtubeUrl } = req.body;
+
+  // Must provide exactly one source
+  if (!videoFilename && !youtubeUrl) {
+    return res.status(400).json({ error: 'Provide either videoFilename or youtubeUrl' });
+  }
+  if (videoFilename && youtubeUrl) {
+    return res.status(400).json({ error: 'Provide only one of videoFilename or youtubeUrl' });
+  }
+
+  if (videoFilename) {
+    const videoPath = path.join(__dirname, '../uploads', videoFilename);
+    if (!fs.existsSync(videoPath)) {
+      return res.status(404).json({ error: `Video not found: ${videoFilename}` });
+    }
+  }
+
+  const room = createRoom(videoFilename || null, youtubeUrl || null);
+  if (!room) {
+    return res.status(400).json({ error: 'Invalid YouTube URL. Could not extract video ID.' });
+  }
+
+  res.json({
+    roomId:        room.id,
+    mode:          room.mode,
+    videoFilename: room.videoFilename,
+    youtubeUrl:    room.youtubeUrl,
+    videoId:       room.videoId,
+  });
 });
+
+// Replace the GET /api/rooms/:roomId route
 
 app.get('/api/rooms/:roomId', (req, res) => {
   const room = getRoom(req.params.roomId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
-  res.json({ id: room.id, videoFilename: room.videoFilename, memberCount: room.members.size });
+  res.json({
+    id:            room.id,
+    mode:          room.mode,
+    videoFilename: room.videoFilename,
+    youtubeUrl:    room.youtubeUrl,
+    videoId:       room.videoId,
+    memberCount:   room.members.size,
+  });
 });
 
 // ─── Video Streaming (unchanged from Phase 1) ─────────────────────────────────

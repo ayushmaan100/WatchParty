@@ -4,16 +4,29 @@ const { getVirtualTime, applyPlay, applyPause, applySeek } = require('./syncEngi
 
 const rooms = new Map();
 
-function createRoom(videoFilename) {
+// Replace the createRoom function entirely
+
+function createRoom(videoFilename, youtubeUrl) {
   const roomId = uuidv4().slice(0, 8);
+
+  // Determine mode and extract YouTube video ID if needed
+  let mode      = 'local';
+  let videoId   = null;
+
+  if (youtubeUrl) {
+    mode    = 'youtube';
+    videoId = extractYouTubeId(youtubeUrl);
+    if (!videoId) return null; // Invalid YouTube URL
+  }
+
   const room = {
     id: roomId,
-    videoFilename,
-    createdAt: Date.now(),
-
-    // Map of userId → { ws, username, joinedAt }
-    members: new Map(),
-
+    mode,
+    videoFilename: videoFilename || null,
+    youtubeUrl:    youtubeUrl    || null,
+    videoId:       videoId       || null,
+    createdAt:     Date.now(),
+    members:       new Map(),
     syncState: {
       isPlaying:   false,
       currentTime: 0,
@@ -21,10 +34,34 @@ function createRoom(videoFilename) {
       hostId:      null,
     },
   };
+
   rooms.set(roomId, room);
-  console.log(`[rooms] Created room ${roomId} → ${videoFilename}`);
+  console.log(`[rooms] Created room ${roomId} [${mode}] → ${videoFilename || youtubeUrl}`);
   return room;
 }
+
+// Extract video ID from any YouTube URL format:
+// https://www.youtube.com/watch?v=dQw4w9WgXcQ
+// https://youtu.be/dQw4w9WgXcQ
+// https://youtube.com/embed/dQw4w9WgXcQ
+function extractYouTubeId(url) {
+  try {
+    const patterns = [
+      /(?:v=)([a-zA-Z0-9_-]{11})/,          // ?v=ID
+      /youtu\.be\/([a-zA-Z0-9_-]{11})/,      // youtu.be/ID
+      /embed\/([a-zA-Z0-9_-]{11})/,          // embed/ID
+      /shorts\/([a-zA-Z0-9_-]{11})/,         // shorts/ID
+    ];
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) return match[1];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 
 function getRoom(roomId) {
   return rooms.get(roomId) || null;
@@ -115,4 +152,5 @@ function applySync(room, type, time) {
 module.exports = {
   createRoom, getRoom, joinRoom, leaveRoom,
   broadcast, getMemberList, applySync, getVirtualTime,
+  extractYouTubeId, 
 };

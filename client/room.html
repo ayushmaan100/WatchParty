@@ -10,7 +10,7 @@
 
   <div id="loadingScreen" class="loading-screen">
     <div class="spinner"></div>
-    <p id="loadingMsg">Joining room...</p>
+    <p>Joining room...</p>
   </div>
 
   <div id="errorScreen" class="error-screen hidden">
@@ -37,16 +37,38 @@
         <span id="roomIdDisplay" class="room-id-value"></span>
         <button id="copyLinkBtn" class="btn-copy">📋 Copy Link</button>
       </div>
-      <div class="connection-status" id="connectionStatus">
+      <div id="connectionStatus" class="connection-status">
         <span class="status-dot disconnected"></span>
         <span class="status-text">Connecting...</span>
       </div>
     </header>
 
     <main class="room-main">
-      <!-- Video player -->
       <div class="player-wrapper">
-        <video id="videoPlayer" controls preload="metadata"></video>
+
+        <!-- LOCAL VIDEO — shown for mode=local -->
+        <video id="videoPlayer" controls preload="metadata"
+               class="hidden"></video>
+
+        <!-- YOUTUBE PLAYER — shown for mode=youtube -->
+        <!-- YouTube API replaces this div with an iframe -->
+        <div id="youtubePlayer" class="yt-container hidden"></div>
+
+        <!-- YouTube controls overlay -->
+        <!-- We need custom play/pause buttons because YouTube's native controls
+             don't fire our sync events reliably on all browsers -->
+        <div id="ytControls" class="yt-controls hidden">
+          <button id="ytPlayPause" class="yt-btn-playpause">▶</button>
+          <div class="yt-time">
+            <span id="ytCurrentTime">0:00</span>
+            <span class="yt-time-sep">/</span>
+            <span id="ytDuration">0:00</span>
+          </div>
+          <input type="range" id="ytSeekBar" class="yt-seekbar"
+                 min="0" max="100" value="0" step="0.1" />
+          <div class="yt-mode-badge">YouTube</div>
+        </div>
+
         <div id="syncOverlay" class="sync-overlay hidden">
           <div class="sync-message" id="syncMessage"></div>
         </div>
@@ -54,42 +76,29 @@
 
       <aside class="sidebar">
 
-        <!-- Call panel -->
         <div class="sidebar-section call-section">
           <h3>Video Call</h3>
-
-          <!-- Local video — always visible when in call -->
           <div id="localVideoWrapper" class="local-video-wrapper hidden">
             <video id="localVideo" autoplay muted playsinline></video>
-            <div class="local-video-label" id="localVideoLabel">You</div>
+            <div class="local-video-label">You</div>
           </div>
-
-          <!-- Remote videos — one tile per peer -->
           <div id="remoteVideos" class="remote-videos"></div>
-
-          <!-- Call controls -->
           <div class="call-controls">
-            <button id="joinCallBtn" class="btn-call-join">
-              📹 Join Call
-            </button>
-
+            <button id="joinCallBtn" class="btn-call-join">📹 Join Call</button>
             <div id="inCallControls" class="in-call-controls hidden">
-              <button id="muteBtn"   class="btn-control" title="Mute/Unmute">🎤</button>
-              <button id="cameraBtn" class="btn-control" title="Camera on/off">📷</button>
-              <button id="leaveCallBtn" class="btn-control btn-danger" title="Leave call">📵</button>
+              <button id="muteBtn"     class="btn-control">🎤</button>
+              <button id="cameraBtn"   class="btn-control">📷</button>
+              <button id="leaveCallBtn" class="btn-control btn-danger">📵</button>
             </div>
           </div>
-
           <div id="callError" class="call-error hidden"></div>
         </div>
 
-        <!-- Members -->
         <div class="sidebar-section">
           <h3>Members <span id="memberCount" class="member-count">0</span></h3>
           <div id="memberList" class="member-list"></div>
         </div>
 
-        <!-- Chat -->
         <div class="sidebar-section chat-section">
           <h3>Chat</h3>
           <div id="chatMessages" class="chat-messages"></div>
@@ -105,6 +114,7 @@
   </div>
 
   <script src="/js/videoPlayer.js"></script>
+  <script src="/js/youtubePlayer.js"></script>
   <script src="/js/syncClient.js"></script>
   <script src="/js/rtcClient.js"></script>
   <script>
@@ -116,6 +126,7 @@
     let player     = null;
     let syncClient = null;
     let rtcClient  = null;
+    let roomData   = null;
 
     async function checkRoomAndPromptUsername(roomId) {
       try {
@@ -123,10 +134,9 @@
         const room = await res.json();
         if (!res.ok) return showFatalError(room.error || 'Room not found.');
 
-        document.getElementById('roomIdDisplay').textContent    = room.id;
-        document.getElementById('sidebarVideoName') &&
-          (document.getElementById('sidebarVideoName').textContent = room.videoFilename);
-        document.title = `WatchParty — ${room.videoFilename}`;
+        roomData = room;
+        document.getElementById('roomIdDisplay').textContent = room.id;
+        document.title = `WatchParty — ${room.videoId || room.videoFilename}`;
 
         document.getElementById('loadingScreen').classList.add('hidden');
         document.getElementById('usernameModal').classList.remove('hidden');
@@ -143,17 +153,20 @@
         document.getElementById('usernameInput').addEventListener('keydown',
           e => e.key === 'Enter' && submit());
 
-      } catch (err) { showFatalError('Failed to reach server.'); }
+      } catch { showFatalError('Failed to reach server.'); }
     }
 
-    function startRoom(room, username) {
+    async function startRoom(room, username) {
       document.getElementById('watchRoom').classList.remove('hidden');
 
-      // Init player
-      player = new VideoPlayer('videoPlayer', room.videoFilename);
-      player.init();
+      // ── Initialize the correct player based on room mode ───────────────────
+      if (room.mode === 'youtube') {
+        await initYouTubeMode(room);
+      } else {
+        initLocalMode(room);
+      }
 
-      // Init sync
+      // ── Sync client — same for both modes ──────────────────────────────────
       syncClient = new SyncClient(player, room.id);
       syncClient.attachToPlayer();
 
@@ -166,10 +179,9 @@
         setTimeout(() => overlay.classList.add('hidden'), 1200);
       };
 
-      syncClient.onConnected = (roomState) => {
+      syncClient.onConnected = (state) => {
         setConnectionStatus(true);
-        if (roomState.isHost) appendSystemMsg('You are the host.');
-        appendSystemMsg('Click "Join Call" to enable video chat.');
+        if (state.isHost) appendSystemMsg('You are the host.');
       };
 
       syncClient.onDisconnected = () => {
@@ -179,8 +191,7 @@
 
       syncClient.onMemberUpdate = (members, count) => {
         document.getElementById('memberCount').textContent = count;
-        const list = document.getElementById('memberList');
-        list.innerHTML = members.map(m => `
+        document.getElementById('memberList').innerHTML = members.map(m => `
           <div class="member-row">
             <span class="member-avatar">${m.username[0].toUpperCase()}</span>
             <span class="member-name">${escapeHtml(m.username)}</span>
@@ -189,35 +200,43 @@
         `).join('');
       };
 
-      syncClient.onChat = (msg) => appendChatMessage(msg);
+      syncClient.onChat = appendChatMessage;
 
-      // Init WebRTC
+      // ── WebRTC — same for both modes ───────────────────────────────────────
       rtcClient = new RTCClient(syncClient);
 
       rtcClient.onLocalStream = (stream) => {
-        const localVideo = document.getElementById('localVideo');
-        localVideo.srcObject = stream;
+        document.getElementById('localVideo').srcObject = stream;
         document.getElementById('localVideoWrapper').classList.remove('hidden');
         document.getElementById('joinCallBtn').classList.add('hidden');
         document.getElementById('inCallControls').classList.remove('hidden');
       };
 
       rtcClient.onRemoteStream = (peerId, stream, peerUsername) => {
-        addRemoteVideo(peerId, stream, peerUsername);
-      };
-
-      rtcClient.onPeerLeft = (peerId) => {
         removeRemoteVideo(peerId);
+        const tile  = document.createElement('div');
+        tile.className     = 'remote-video-tile';
+        tile.dataset.peerId = peerId;
+        const vid   = document.createElement('video');
+        vid.autoplay    = true;
+        vid.playsinline = true;
+        vid.srcObject   = stream;
+        const lbl   = document.createElement('div');
+        lbl.className   = 'remote-video-label';
+        lbl.textContent = peerUsername;
+        tile.appendChild(vid);
+        tile.appendChild(lbl);
+        document.getElementById('remoteVideos').appendChild(tile);
       };
 
-      rtcClient.onError = (msg) => {
+      rtcClient.onPeerLeft  = removeRemoteVideo;
+      rtcClient.onError     = (msg) => {
         const el = document.getElementById('callError');
         el.textContent = msg;
         el.classList.remove('hidden');
         setTimeout(() => el.classList.add('hidden'), 6000);
       };
 
-      // ── Call buttons ──────────────────────────────────────────────────────
       document.getElementById('joinCallBtn').addEventListener('click', async () => {
         document.getElementById('joinCallBtn').textContent = '⏳ Connecting...';
         document.getElementById('joinCallBtn').disabled = true;
@@ -237,35 +256,29 @@
         document.getElementById('joinCallBtn').textContent = '📹 Join Call';
         document.getElementById('joinCallBtn').disabled = false;
         document.getElementById('remoteVideos').innerHTML = '';
-        appendSystemMsg('You left the call.');
       });
 
       document.getElementById('muteBtn').addEventListener('click', () => {
         const muted = rtcClient.toggleMute();
         document.getElementById('muteBtn').textContent = muted ? '🔇' : '🎤';
-        document.getElementById('muteBtn').classList.toggle('btn-active', muted);
       });
 
       document.getElementById('cameraBtn').addEventListener('click', () => {
         const off = rtcClient.toggleCamera();
         document.getElementById('cameraBtn').textContent = off ? '🚫' : '📷';
-        document.getElementById('cameraBtn').classList.toggle('btn-active', off);
       });
 
-      // ── Chat ──────────────────────────────────────────────────────────────
+      // ── Chat ───────────────────────────────────────────────────────────────
+      const sendChat = () => {
+        const input = document.getElementById('chatInput');
+        const text  = input.value.trim();
+        if (text) { syncClient.sendChat(text); input.value = ''; }
+      };
       document.getElementById('chatSendBtn').addEventListener('click', sendChat);
       document.getElementById('chatInput').addEventListener('keydown',
         e => e.key === 'Enter' && sendChat());
 
-      function sendChat() {
-        const input = document.getElementById('chatInput');
-        const text  = input.value.trim();
-        if (!text) return;
-        syncClient.sendChat(text);
-        input.value = '';
-      }
-
-      document.getElementById('copyLinkBtn')?.addEventListener('click', () => {
+      document.getElementById('copyLinkBtn').addEventListener('click', () => {
         navigator.clipboard.writeText(window.location.href).then(() => {
           const btn = document.getElementById('copyLinkBtn');
           btn.textContent = '✅ Copied!';
@@ -276,34 +289,87 @@
       syncClient.connect(username);
     }
 
-    // ── Remote video management ──────────────────────────────────────────────
-    function addRemoteVideo(peerId, stream, username) {
-      removeRemoteVideo(peerId); // Avoid duplicates
-
-      const container = document.createElement('div');
-      container.className = 'remote-video-tile';
-      container.dataset.peerId = peerId;
-
-      const video = document.createElement('video');
-      video.autoplay   = true;
-      video.playsinline = true;
-      video.srcObject  = stream;
-
-      const label = document.createElement('div');
-      label.className   = 'remote-video-label';
-      label.textContent = username;
-
-      container.appendChild(video);
-      container.appendChild(label);
-      document.getElementById('remoteVideos').appendChild(container);
+    // ── Local video mode ───────────────────────────────────────────────────────
+    function initLocalMode(room) {
+      const videoEl = document.getElementById('videoPlayer');
+      videoEl.classList.remove('hidden');
+      player = new VideoPlayer('videoPlayer', room.videoFilename);
+      player.init();
     }
 
+    // ── YouTube mode ───────────────────────────────────────────────────────────
+    async function initYouTubeMode(room) {
+      document.getElementById('youtubePlayer').classList.remove('hidden');
+      document.getElementById('ytControls').classList.remove('hidden');
+
+      player = new YouTubePlayer('youtubePlayer', room.videoId);
+      await player.init();
+
+      // Wire up custom controls UI
+      // YouTube's native controls work but we add our own seek bar
+      // so the sync overlay looks consistent with local video mode.
+      wireYouTubeControls(player);
+    }
+
+    function wireYouTubeControls(ytPlayer) {
+      const playPauseBtn  = document.getElementById('ytPlayPause');
+      const seekBar       = document.getElementById('ytSeekBar');
+      const currentTimeEl = document.getElementById('ytCurrentTime');
+      const durationEl    = document.getElementById('ytDuration');
+
+      let isSeeking = false; // True while user is dragging the seek bar
+
+      // Update seek bar and time display every 500ms
+      setInterval(() => {
+        if (!ytPlayer.isReady || isSeeking) return;
+
+        const current  = ytPlayer.getCurrentTime();
+        const duration = ytPlayer.getDuration();
+
+        currentTimeEl.textContent = formatTime(current);
+        durationEl.textContent    = formatTime(duration);
+
+        if (duration > 0) {
+          seekBar.value = (current / duration) * 100;
+        }
+
+        playPauseBtn.textContent = ytPlayer.isPaused() ? '▶' : '⏸';
+      }, 500);
+
+      // Play/pause button
+      playPauseBtn.addEventListener('click', () => {
+        if (ytPlayer.isPaused()) {
+          ytPlayer.onPlay && ytPlayer.onPlay(ytPlayer.getCurrentTime());
+        } else {
+          ytPlayer.onPause && ytPlayer.onPause(ytPlayer.getCurrentTime());
+        }
+      });
+
+      // Seek bar — suppress poll updates while dragging
+      seekBar.addEventListener('mousedown', () => { isSeeking = true; });
+      seekBar.addEventListener('touchstart', () => { isSeeking = true; });
+
+      seekBar.addEventListener('input', () => {
+        const duration = ytPlayer.getDuration();
+        const time     = (seekBar.value / 100) * duration;
+        currentTimeEl.textContent = formatTime(time);
+      });
+
+      seekBar.addEventListener('change', () => {
+        const duration = ytPlayer.getDuration();
+        const time     = (seekBar.value / 100) * duration;
+        isSeeking = false;
+        // This triggers the onSeek callback which syncClient broadcasts
+        if (ytPlayer.onSeek) ytPlayer.onSeek(time);
+        ytPlayer.seekTo(time);
+      });
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
     function removeRemoteVideo(peerId) {
-      const existing = document.querySelector(`[data-peer-id="${peerId}"]`);
-      if (existing) existing.remove();
+      document.querySelector(`[data-peer-id="${peerId}"]`)?.remove();
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
     function appendChatMessage(msg) {
       const box = document.getElementById('chatMessages');
       const el  = document.createElement('div');
@@ -337,6 +403,15 @@
 
     function escapeHtml(str) {
       return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function formatTime(seconds) {
+      if (!seconds || isNaN(seconds)) return '0:00';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = Math.floor(seconds % 60);
+      if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      return `${m}:${String(s).padStart(2,'0')}`;
     }
   </script>
 </body>
