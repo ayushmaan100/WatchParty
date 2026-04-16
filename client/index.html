@@ -51,6 +51,40 @@
       <div id="createError" class="error hidden"></div>
     </div>
 
+    <div class="card" id="uploadCard">
+  <h2>Upload a Video</h2>
+  <p class="hint">Upload once to the server. All room members stream from it.</p>
+
+  <div id="uploadDropzone" class="upload-dropzone">
+    <div class="upload-icon">📁</div>
+    <p class="upload-label">Drag & drop a video file here</p>
+    <p class="upload-sub">or click to browse</p>
+    <p class="upload-formats">MP4 · MKV · WebM · MOV · AVI · Max 5GB</p>
+    <input type="file" id="fileInput"
+           accept=".mp4,.mkv,.webm,.mov,.avi,video/*"
+           style="display:none" />
+  </div>
+
+  <!-- Progress bar — hidden until upload starts -->
+  <div id="uploadProgress" class="upload-progress hidden">
+    <div class="progress-info">
+      <span id="uploadFilename" class="progress-filename"></span>
+      <span id="uploadPercent" class="progress-percent">0%</span>
+    </div>
+    <div class="progress-bar-track">
+      <div id="progressBarFill" class="progress-bar-fill"></div>
+    </div>
+    <p id="uploadStatus" class="upload-status">Preparing...</p>
+  </div>
+
+  <div id="uploadSuccess" class="upload-success hidden">
+    ✅ <span id="uploadedFilename"></span> uploaded successfully.
+  </div>
+
+  <div id="uploadError" class="upload-error hidden"></div>
+</div>
+
+
     <div class="card">
       <h2>Join a Room</h2>
       <p class="hint">Have a room ID? Enter it below.</p>
@@ -149,6 +183,8 @@
       }
     });
 
+    
+
     // ── Join room ──────────────────────────────────────────────────────────────
     document.getElementById('joinBtn').addEventListener('click', () => {
       const roomId = document.getElementById('roomIdInput').value.trim();
@@ -165,6 +201,114 @@
       el.classList.remove('hidden');
       setTimeout(() => el.classList.add('hidden'), 5000);
     }
+
+    // Upload functionality — add to the existing <script> tag in index.html
+
+  const dropzone = document.getElementById('uploadDropzone');
+  const fileInput = document.getElementById('fileInput');
+
+  // Click to browse
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  // Drag and drop
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('drag-over');
+  });
+
+  dropzone.addEventListener('dragleave', () => {
+    dropzone.classList.remove('drag-over');
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) startUpload(file);
+  });
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) startUpload(fileInput.files[0]);
+  });
+
+  function startUpload(file) {
+    // Client-side validation before even starting
+    const MAX = 5 * 1024 * 1024 * 1024;
+    const ALLOWED_EXT = ['.mp4', '.mkv', '.webm', '.mov', '.avi'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+
+    if (file.size > MAX) {
+      showUploadError(`File too large: ${(file.size / 1024 / 1024 / 1024).toFixed(1)}GB. Max is 5GB.`);
+      return;
+    }
+
+    if (!ALLOWED_EXT.includes(ext)) {
+      showUploadError(`Unsupported format: ${ext}. Use MP4, MKV, WebM, MOV, or AVI.`);
+      return;
+    }
+
+    // Show progress UI
+    document.getElementById('uploadDropzone').classList.add('hidden');
+    document.getElementById('uploadSuccess').classList.add('hidden');
+    document.getElementById('uploadError').classList.add('hidden');
+    document.getElementById('uploadProgress').classList.remove('hidden');
+    document.getElementById('uploadFilename').textContent = file.name;
+    document.getElementById('uploadPercent').textContent  = '0%';
+    document.getElementById('uploadStatus').textContent   = 'Uploading...';
+
+    // Use XMLHttpRequest (not fetch) because fetch doesn't support progress events
+    const xhr    = new XMLHttpRequest();
+    const formData = new FormData();
+    formData.append('video', file);
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round((e.loaded / e.total) * 100);
+      document.getElementById('uploadPercent').textContent  = `${pct}%`;
+      document.getElementById('progressBarFill').style.width = `${pct}%`;
+      document.getElementById('uploadStatus').textContent =
+        `${(e.loaded / 1024 / 1024).toFixed(1)} MB / ${(e.total / 1024 / 1024).toFixed(1)} MB`;
+    });
+
+    xhr.addEventListener('load', () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // Success
+          document.getElementById('uploadProgress').classList.add('hidden');
+          document.getElementById('uploadSuccess').classList.remove('hidden');
+          document.getElementById('uploadedFilename').textContent = data.filename;
+          document.getElementById('uploadDropzone').classList.remove('hidden');
+          // Refresh the video list
+          loadVideos();
+        } else {
+          showUploadError(data.error || 'Upload failed.');
+        }
+      } catch {
+        showUploadError('Server returned an unexpected response.');
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      showUploadError('Network error during upload.');
+    });
+
+    xhr.addEventListener('abort', () => {
+      showUploadError('Upload cancelled.');
+    });
+
+    xhr.open('POST', '/api/upload');
+    xhr.send(formData);
+  }
+
+  function showUploadError(msg) {
+    document.getElementById('uploadProgress').classList.add('hidden');
+    document.getElementById('uploadDropzone').classList.remove('hidden');
+    const el = document.getElementById('uploadError');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 6000);
+  }
 
     loadVideos();
   </script>

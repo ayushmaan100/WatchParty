@@ -630,3 +630,88 @@ select option { background: var(--surface-2); }
   font-weight: 700;
   flex-shrink: 0;
 }
+
+/* ── Phase 6: Upload ───────────────────────────────────────────────────────── */
+.upload-dropzone {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 32px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.upload-dropzone:hover,
+.upload-dropzone.drag-over {
+  border-color: var(--accent);
+  background:   rgba(108, 99, 255, 0.06);
+}
+
+.upload-icon    { font-size: 2rem; }
+.upload-label   { font-weight: 600; font-size: 0.95rem; }
+.upload-sub     { color: var(--text-muted); font-size: 0.85rem; }
+.upload-formats { color: var(--text-muted); font-size: 0.75rem; margin-top: 4px; }
+
+/* Progress bar */
+.upload-progress { display: flex; flex-direction: column; gap: 8px; }
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+}
+
+.progress-filename {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
+}
+
+.progress-percent { color: var(--accent); font-weight: 700; }
+
+.progress-bar-track {
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.15s ease;
+}
+
+.upload-status {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.upload-success {
+  font-size: 0.875rem;
+  color: var(--success);
+  text-align: center;
+  padding: 8px;
+  background: rgba(77, 255, 145, 0.08);
+  border: 1px solid rgba(77, 255, 145, 0.2);
+  border-radius: 6px;
+}
+
+.upload-error {
+  font-size: 0.875rem;
+  color: var(--error);
+  text-align: center;
+  padding: 8px;
+  background: rgba(255, 77, 109, 0.08);
+  border: 1px solid rgba(255, 77, 109, 0.2);
+  border-radius: 6px;
+}
