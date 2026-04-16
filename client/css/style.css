@@ -83,7 +83,7 @@ select:focus, input[type="text"]:focus {
 select option { background: var(--surface-2); }
 
 .btn-primary, .btn-secondary {
-  padding: 11px 20px;
+  padding: 11px 20px; 
   border-radius: 6px;
   font-size: 0.95rem;
   font-weight: 600;
@@ -171,6 +171,7 @@ select option { background: var(--surface-2); }
   font-size: 0.75rem;
   cursor: pointer;
 }
+
 .btn-copy:hover { border-color: var(--accent); color: var(--accent); }
 
 .video-title { color: var(--text-muted); font-size: 0.85rem; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
@@ -295,3 +296,210 @@ select option { background: var(--surface-2); }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Phase 2: Username Modal ───────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 36px;
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: center;
+}
+
+.modal h2 { font-size: 1.3rem; }
+.modal p  { color: var(--text-muted); font-size: 0.9rem; }
+
+/* ── Connection Status ─────────────────────────────────────────────────────── */
+.connection-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.connected    { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.status-dot.disconnected { background: var(--error);   box-shadow: 0 0 6px var(--error); }
+
+/* ── Member List ───────────────────────────────────────────────────────────── */
+.member-count {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 4px;
+}
+
+.member-list { display: flex; flex-direction: column; gap: 6px; }
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.member-avatar {
+  width: 26px; height: 26px;
+  background: var(--accent);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.member-name  { flex: 1; }
+.host-badge {
+  font-size: 0.65rem;
+  background: var(--accent);
+  color: white;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* ── Chat Messages ─────────────────────────────────────────────────────────── */
+.chat-msg {
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.chat-author {
+  font-weight: 700;
+  color: var(--accent);
+  margin-right: 6px;
+}
+
+.chat-text    { color: var(--text); }
+.small-text   { font-size: 0.8rem; }
+
+/* ── Phase 3: Video Call ───────────────────────────────────────────────────── */
+.call-section { display: flex; flex-direction: column; gap: 10px; }
+
+/* Local video — small self-view */
+.local-video-wrapper {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 4/3;
+  width: 100%;
+}
+
+.local-video-wrapper video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Mirror local video — feels natural */
+}
+
+.local-video-label, .remote-video-label {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: white;
+  background: rgba(0,0,0,0.55);
+  padding: 2px 6px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+}
+
+/* Remote video tiles */
+.remote-videos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.remote-video-tile {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #111;
+  aspect-ratio: 4/3;
+  width: 100%;
+}
+
+.remote-video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Call controls */
+.call-controls { display: flex; align-items: center; gap: 8px; }
+
+.btn-call-join {
+  width: 100%;
+  padding: 10px;
+  background: #22c55e;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-call-join:hover:not(:disabled) { background: #16a34a; }
+.btn-call-join:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.in-call-controls { display: flex; gap: 8px; width: 100%; }
+
+.btn-control {
+  flex: 1;
+  padding: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.btn-control:hover   { background: var(--border); }
+.btn-control.btn-active { background: var(--surface-2); border-color: var(--accent); }
+.btn-danger          { border-color: var(--error); }
+.btn-danger:hover    { background: var(--error); }
+
+.call-error {
+  font-size: 0.8rem;
+  color: var(--error);
+  background: rgba(255,77,109,0.1);
+  border: 1px solid rgba(255,77,109,0.3);
+  border-radius: 6px;
+  padding: 8px 10px;
+}

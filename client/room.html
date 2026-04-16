@@ -7,144 +7,336 @@
   <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
-  <!-- Loading state while we verify the room exists -->
+
   <div id="loadingScreen" class="loading-screen">
     <div class="spinner"></div>
-    <p>Joining room...</p>
+    <p id="loadingMsg">Joining room...</p>
   </div>
 
-  <!-- Error state — room not found, etc. -->
   <div id="errorScreen" class="error-screen hidden">
-    <h2>❌ Room Not Found</h2>
-    <p id="errorDetail">This room doesn't exist or has expired.</p>
+    <h2>❌ Error</h2>
+    <p id="errorDetail"></p>
     <a href="/" class="btn-primary">Back to Lobby</a>
   </div>
 
-  <!-- Main watch room -->
+  <div id="usernameModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>What's your name?</h2>
+      <p>Others in the room will see this.</p>
+      <input type="text" id="usernameInput" placeholder="e.g. Rahul"
+             maxlength="24" autocomplete="off" />
+      <button id="usernameSubmit" class="btn-primary">Join Room</button>
+    </div>
+  </div>
+
   <div id="watchRoom" class="watch-room hidden">
     <header class="room-header">
       <a href="/" class="back-link">← Lobby</a>
       <div class="room-info">
-        <span class="room-id-label">Room: </span>
+        <span class="room-id-label">Room:</span>
         <span id="roomIdDisplay" class="room-id-value"></span>
-        <button id="copyLinkBtn" class="btn-copy" title="Copy room link">📋 Copy Link</button>
+        <button id="copyLinkBtn" class="btn-copy">📋 Copy Link</button>
       </div>
-      <div class="room-meta">
-        <span id="videoTitle" class="video-title"></span>
+      <div class="connection-status" id="connectionStatus">
+        <span class="status-dot disconnected"></span>
+        <span class="status-text">Connecting...</span>
       </div>
     </header>
 
     <main class="room-main">
-      <!-- Video Player -->
+      <!-- Video player -->
       <div class="player-wrapper">
-        <video
-          id="videoPlayer"
-          controls
-          preload="metadata"
-        >
-          Your browser does not support HTML5 video.
-        </video>
-
-        <!-- Overlay shown when syncing (Phase 2) -->
+        <video id="videoPlayer" controls preload="metadata"></video>
         <div id="syncOverlay" class="sync-overlay hidden">
-          <div class="sync-message">⏳ Syncing...</div>
+          <div class="sync-message" id="syncMessage"></div>
         </div>
       </div>
 
-      <!-- Sidebar: Chat (Phase 2) + Room Info -->
       <aside class="sidebar">
+
+        <!-- Call panel -->
+        <div class="sidebar-section call-section">
+          <h3>Video Call</h3>
+
+          <!-- Local video — always visible when in call -->
+          <div id="localVideoWrapper" class="local-video-wrapper hidden">
+            <video id="localVideo" autoplay muted playsinline></video>
+            <div class="local-video-label" id="localVideoLabel">You</div>
+          </div>
+
+          <!-- Remote videos — one tile per peer -->
+          <div id="remoteVideos" class="remote-videos"></div>
+
+          <!-- Call controls -->
+          <div class="call-controls">
+            <button id="joinCallBtn" class="btn-call-join">
+              📹 Join Call
+            </button>
+
+            <div id="inCallControls" class="in-call-controls hidden">
+              <button id="muteBtn"   class="btn-control" title="Mute/Unmute">🎤</button>
+              <button id="cameraBtn" class="btn-control" title="Camera on/off">📷</button>
+              <button id="leaveCallBtn" class="btn-control btn-danger" title="Leave call">📵</button>
+            </div>
+          </div>
+
+          <div id="callError" class="call-error hidden"></div>
+        </div>
+
+        <!-- Members -->
         <div class="sidebar-section">
-          <h3>Room Info</h3>
-          <div class="info-row">
-            <span class="info-label">Room ID</span>
-            <span id="sidebarRoomId" class="info-value mono"></span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Video</span>
-            <span id="sidebarVideoName" class="info-value"></span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Members</span>
-            <span id="sidebarMemberCount" class="info-value">—</span>
+          <h3>Members <span id="memberCount" class="member-count">0</span></h3>
+          <div id="memberList" class="member-list"></div>
+        </div>
+
+        <!-- Chat -->
+        <div class="sidebar-section chat-section">
+          <h3>Chat</h3>
+          <div id="chatMessages" class="chat-messages"></div>
+          <div class="chat-input-row">
+            <input type="text" id="chatInput"
+                   placeholder="Type a message..." maxlength="500" />
+            <button id="chatSendBtn" class="btn-send">Send</button>
           </div>
         </div>
 
-        <!-- Chat placeholder — wired up in Phase 2 -->
-        <div class="sidebar-section chat-section">
-          <h3>Chat <span class="coming-soon">(Phase 2)</span></h3>
-          <div id="chatMessages" class="chat-messages">
-            <div class="system-msg">Chat will be enabled in Phase 2.</div>
-          </div>
-          <div class="chat-input-row">
-            <input
-              type="text"
-              id="chatInput"
-              placeholder="Type a message..."
-              disabled
-            />
-            <button id="chatSendBtn" class="btn-send" disabled>Send</button>
-          </div>
-        </div>
       </aside>
     </main>
   </div>
 
   <script src="/js/videoPlayer.js"></script>
+  <script src="/js/syncClient.js"></script>
+  <script src="/js/rtcClient.js"></script>
   <script>
-    // ── Bootstrap: read roomId from URL, fetch room info ──────────────────────
     const params = new URLSearchParams(window.location.search);
     const roomId = params.get('roomId');
+    if (!roomId) { showFatalError('No room ID in URL.'); }
+    else { checkRoomAndPromptUsername(roomId); }
 
-    if (!roomId) {
-      showError('No room ID in URL.');
-    } else {
-      initRoom(roomId);
-    }
+    let player     = null;
+    let syncClient = null;
+    let rtcClient  = null;
 
-    async function initRoom(roomId) {
+    async function checkRoomAndPromptUsername(roomId) {
       try {
         const res  = await fetch(`/api/rooms/${roomId}`);
         const room = await res.json();
+        if (!res.ok) return showFatalError(room.error || 'Room not found.');
 
-        if (!res.ok) {
-          showError(room.error || 'Room not found.');
-          return;
-        }
-
-        // Room found — set up the UI
         document.getElementById('roomIdDisplay').textContent    = room.id;
-        document.getElementById('sidebarRoomId').textContent    = room.id;
-        document.getElementById('sidebarVideoName').textContent = room.videoFilename;
-        document.getElementById('videoTitle').textContent       = room.videoFilename;
+        document.getElementById('sidebarVideoName') &&
+          (document.getElementById('sidebarVideoName').textContent = room.videoFilename);
         document.title = `WatchParty — ${room.videoFilename}`;
 
-        // Initialize the video player
-        const player = new VideoPlayer('videoPlayer', room.videoFilename);
-        player.init();
-
-        // Hide loading, show room
         document.getElementById('loadingScreen').classList.add('hidden');
-        document.getElementById('watchRoom').classList.remove('hidden');
+        document.getElementById('usernameModal').classList.remove('hidden');
+        setTimeout(() => document.getElementById('usernameInput').focus(), 50);
 
-      } catch (err) {
-        showError('Failed to connect to server.');
-      }
+        const submit = () => {
+          const username = document.getElementById('usernameInput').value.trim();
+          if (!username) return;
+          document.getElementById('usernameModal').classList.add('hidden');
+          startRoom(room, username);
+        };
+
+        document.getElementById('usernameSubmit').addEventListener('click', submit);
+        document.getElementById('usernameInput').addEventListener('keydown',
+          e => e.key === 'Enter' && submit());
+
+      } catch (err) { showFatalError('Failed to reach server.'); }
     }
 
-    // ── Copy room link to clipboard ────────────────────────────────────────────
-    document.getElementById('copyLinkBtn').addEventListener('click', () => {
-      const link = window.location.href;
-      navigator.clipboard.writeText(link).then(() => {
-        const btn = document.getElementById('copyLinkBtn');
-        btn.textContent = '✅ Copied!';
-        setTimeout(() => btn.textContent = '📋 Copy Link', 2000);
-      });
-    });
+    function startRoom(room, username) {
+      document.getElementById('watchRoom').classList.remove('hidden');
 
-    function showError(detail) {
+      // Init player
+      player = new VideoPlayer('videoPlayer', room.videoFilename);
+      player.init();
+
+      // Init sync
+      syncClient = new SyncClient(player, room.id);
+      syncClient.attachToPlayer();
+
+      syncClient.onSyncEvent = (type, time, fromUsername) => {
+        const overlay = document.getElementById('syncOverlay');
+        const msgEl   = document.getElementById('syncMessage');
+        const icons   = { play: '▶️', pause: '⏸️', seek: '⏩' };
+        msgEl.textContent = `${icons[type] || ''} ${fromUsername} ${type}d`;
+        overlay.classList.remove('hidden');
+        setTimeout(() => overlay.classList.add('hidden'), 1200);
+      };
+
+      syncClient.onConnected = (roomState) => {
+        setConnectionStatus(true);
+        if (roomState.isHost) appendSystemMsg('You are the host.');
+        appendSystemMsg('Click "Join Call" to enable video chat.');
+      };
+
+      syncClient.onDisconnected = () => {
+        setConnectionStatus(false);
+        appendSystemMsg('Disconnected. Reconnecting...');
+      };
+
+      syncClient.onMemberUpdate = (members, count) => {
+        document.getElementById('memberCount').textContent = count;
+        const list = document.getElementById('memberList');
+        list.innerHTML = members.map(m => `
+          <div class="member-row">
+            <span class="member-avatar">${m.username[0].toUpperCase()}</span>
+            <span class="member-name">${escapeHtml(m.username)}</span>
+            ${m.isHost ? '<span class="host-badge">HOST</span>' : ''}
+          </div>
+        `).join('');
+      };
+
+      syncClient.onChat = (msg) => appendChatMessage(msg);
+
+      // Init WebRTC
+      rtcClient = new RTCClient(syncClient);
+
+      rtcClient.onLocalStream = (stream) => {
+        const localVideo = document.getElementById('localVideo');
+        localVideo.srcObject = stream;
+        document.getElementById('localVideoWrapper').classList.remove('hidden');
+        document.getElementById('joinCallBtn').classList.add('hidden');
+        document.getElementById('inCallControls').classList.remove('hidden');
+      };
+
+      rtcClient.onRemoteStream = (peerId, stream, peerUsername) => {
+        addRemoteVideo(peerId, stream, peerUsername);
+      };
+
+      rtcClient.onPeerLeft = (peerId) => {
+        removeRemoteVideo(peerId);
+      };
+
+      rtcClient.onError = (msg) => {
+        const el = document.getElementById('callError');
+        el.textContent = msg;
+        el.classList.remove('hidden');
+        setTimeout(() => el.classList.add('hidden'), 6000);
+      };
+
+      // ── Call buttons ──────────────────────────────────────────────────────
+      document.getElementById('joinCallBtn').addEventListener('click', async () => {
+        document.getElementById('joinCallBtn').textContent = '⏳ Connecting...';
+        document.getElementById('joinCallBtn').disabled = true;
+        const ok = await rtcClient.joinCall();
+        if (!ok) {
+          document.getElementById('joinCallBtn').textContent = '📹 Join Call';
+          document.getElementById('joinCallBtn').disabled = false;
+        }
+      });
+
+      document.getElementById('leaveCallBtn').addEventListener('click', () => {
+        rtcClient.leaveCall();
+        document.getElementById('localVideo').srcObject = null;
+        document.getElementById('localVideoWrapper').classList.add('hidden');
+        document.getElementById('inCallControls').classList.add('hidden');
+        document.getElementById('joinCallBtn').classList.remove('hidden');
+        document.getElementById('joinCallBtn').textContent = '📹 Join Call';
+        document.getElementById('joinCallBtn').disabled = false;
+        document.getElementById('remoteVideos').innerHTML = '';
+        appendSystemMsg('You left the call.');
+      });
+
+      document.getElementById('muteBtn').addEventListener('click', () => {
+        const muted = rtcClient.toggleMute();
+        document.getElementById('muteBtn').textContent = muted ? '🔇' : '🎤';
+        document.getElementById('muteBtn').classList.toggle('btn-active', muted);
+      });
+
+      document.getElementById('cameraBtn').addEventListener('click', () => {
+        const off = rtcClient.toggleCamera();
+        document.getElementById('cameraBtn').textContent = off ? '🚫' : '📷';
+        document.getElementById('cameraBtn').classList.toggle('btn-active', off);
+      });
+
+      // ── Chat ──────────────────────────────────────────────────────────────
+      document.getElementById('chatSendBtn').addEventListener('click', sendChat);
+      document.getElementById('chatInput').addEventListener('keydown',
+        e => e.key === 'Enter' && sendChat());
+
+      function sendChat() {
+        const input = document.getElementById('chatInput');
+        const text  = input.value.trim();
+        if (!text) return;
+        syncClient.sendChat(text);
+        input.value = '';
+      }
+
+      document.getElementById('copyLinkBtn')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(window.location.href).then(() => {
+          const btn = document.getElementById('copyLinkBtn');
+          btn.textContent = '✅ Copied!';
+          setTimeout(() => btn.textContent = '📋 Copy Link', 2000);
+        });
+      });
+
+      syncClient.connect(username);
+    }
+
+    // ── Remote video management ──────────────────────────────────────────────
+    function addRemoteVideo(peerId, stream, username) {
+      removeRemoteVideo(peerId); // Avoid duplicates
+
+      const container = document.createElement('div');
+      container.className = 'remote-video-tile';
+      container.dataset.peerId = peerId;
+
+      const video = document.createElement('video');
+      video.autoplay   = true;
+      video.playsinline = true;
+      video.srcObject  = stream;
+
+      const label = document.createElement('div');
+      label.className   = 'remote-video-label';
+      label.textContent = username;
+
+      container.appendChild(video);
+      container.appendChild(label);
+      document.getElementById('remoteVideos').appendChild(container);
+    }
+
+    function removeRemoteVideo(peerId) {
+      const existing = document.querySelector(`[data-peer-id="${peerId}"]`);
+      if (existing) existing.remove();
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function appendChatMessage(msg) {
+      const box = document.getElementById('chatMessages');
+      const el  = document.createElement('div');
+      if (msg.system) {
+        el.className   = 'system-msg';
+        el.textContent = msg.text;
+      } else {
+        el.className = 'chat-msg';
+        el.innerHTML = `<span class="chat-author">${escapeHtml(msg.username)}</span>
+                        <span class="chat-text">${escapeHtml(msg.text)}</span>`;
+      }
+      box.appendChild(el);
+      const isAtBottom = box.scrollHeight - box.clientHeight - box.scrollTop < 60;
+      if (isAtBottom) box.scrollTop = box.scrollHeight;
+    }
+
+    function appendSystemMsg(text) { appendChatMessage({ system: true, text }); }
+
+    function setConnectionStatus(connected) {
+      document.querySelector('.status-dot').className =
+        `status-dot ${connected ? 'connected' : 'disconnected'}`;
+      document.querySelector('.status-text').textContent =
+        connected ? 'Connected' : 'Reconnecting...';
+    }
+
+    function showFatalError(detail) {
       document.getElementById('loadingScreen').classList.add('hidden');
       document.getElementById('errorDetail').textContent = detail;
       document.getElementById('errorScreen').classList.remove('hidden');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
   </script>
 </body>

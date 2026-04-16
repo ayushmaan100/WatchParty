@@ -1,31 +1,28 @@
-// rooms.js — In-memory room state
-// A "room" knows: who's in it, what video is playing, current sync state.
-// In Phase 2, we'll add sync state. For now: just membership.
-
+// rooms.js — updated for Phase 2
 const { v4: uuidv4 } = require('uuid');
+const { getVirtualTime, applyPlay, applyPause, applySeek } = require('./syncEngine');
 
-// rooms is a Map: roomId → roomObject
 const rooms = new Map();
 
 function createRoom(videoFilename) {
-  const roomId = uuidv4().slice(0, 8); // Short 8-char ID, easier to share
-  
+  const roomId = uuidv4().slice(0, 8);
   const room = {
     id: roomId,
-    videoFilename,          // e.g. "movie.mp4"
+    videoFilename,
     createdAt: Date.now(),
-    clients: new Set(),     // Will hold WebSocket connections in Phase 2
-    
-    // Sync state — populated in Phase 2
+
+    // Map of userId → { ws, username, joinedAt }
+    members: new Map(),
+
     syncState: {
-      isPlaying: false,
+      isPlaying:   false,
       currentTime: 0,
       lastUpdated: Date.now(),
-    }
+      hostId:      null,
+    },
   };
-  
   rooms.set(roomId, room);
-  console.log(`[rooms] Created room ${roomId} for video: ${videoFilename}`);
+  console.log(`[rooms] Created room ${roomId} → ${videoFilename}`);
   return room;
 }
 
@@ -33,19 +30,89 @@ function getRoom(roomId) {
   return rooms.get(roomId) || null;
 }
 
-function listRooms() {
-  // Returns array of room summaries (not full objects — don't expose WS clients)
-  return Array.from(rooms.values()).map(r => ({
-    id: r.id,
-    videoFilename: r.videoFilename,
-    createdAt: r.createdAt,
-    memberCount: r.clients.size,
+// Add a WebSocket client to a room
+function joinRoom(roomId, userId, ws, username) {
+  const room = getRoom(roomId);
+  if (!room) return null;
+
+  // First member becomes host
+  if (room.members.size === 0) {
+    room.syncState.hostId = userId;
+    console.log(`[rooms] ${userId} is host of ${roomId}`);
+  }
+
+  room.members.set(userId, { ws, username, joinedAt: Date.now() });
+  console.log(`[rooms] ${username} (${userId}) joined room ${roomId}. Members: ${room.members.size}`);
+  return room;
+}
+
+function leaveRoom(roomId, userId) {
+  const room = getRoom(roomId);
+  if (!room) return;
+
+  const member = room.members.get(userId);
+  room.members.delete(userId);
+  console.log(`[rooms] ${userId} left room ${roomId}. Members: ${room.members.size}`);
+
+  // If host left, assign next host
+  if (room.syncState.hostId === userId && room.members.size > 0) {
+    const nextHostId = room.members.keys().next().value;
+    room.syncState.hostId = nextHostId;
+    console.log(`[rooms] New host: ${nextHostId}`);
+  }
+
+  // Optionally clean up empty rooms
+  if (room.members.size === 0) {
+    // Keep room alive for 10 minutes in case they reconnect
+    setTimeout(() => {
+      if (rooms.has(roomId) && rooms.get(roomId).members.size === 0) {
+        rooms.delete(roomId);
+        console.log(`[rooms] Cleaned up empty room ${roomId}`);
+      }
+    }, 10 * 60 * 1000);
+  }
+}
+
+// Broadcast a message to all members of a room except optional excludeId
+function broadcast(roomId, message, excludeUserId = null) {
+  const room = getRoom(roomId);
+  if (!room) return;
+
+  const json = JSON.stringify(message);
+  let sent = 0;
+
+  for (const [uid, member] of room.members) {
+    if (uid === excludeUserId) continue;
+    // Only send to open connections (2 = OPEN in WebSocket spec)
+    if (member.ws.readyState === 2 || member.ws.readyState === 3) continue;
+    try {
+      member.ws.send(json);
+      sent++;
+    } catch (err) {
+      console.error(`[rooms] Failed to send to ${uid}:`, err.message);
+    }
+  }
+  return sent;
+}
+
+function getMemberList(room) {
+  return Array.from(room.members.entries()).map(([uid, m]) => ({
+    userId:   uid,
+    username: m.username,
+    isHost:   uid === room.syncState.hostId,
   }));
 }
 
-function deleteRoom(roomId) {
-  rooms.delete(roomId);
-  console.log(`[rooms] Deleted room ${roomId}`);
+// Apply a sync event and return the updated state
+function applySync(room, type, time) {
+  const serverTs = Date.now();
+  if (type === 'PLAY')  room.syncState = applyPlay(room.syncState, time, serverTs);
+  if (type === 'PAUSE') room.syncState = applyPause(room.syncState, time, serverTs);
+  if (type === 'SEEK')  room.syncState = applySeek(room.syncState, time, serverTs);
+  return { ...room.syncState, serverTs };
 }
 
-module.exports = { createRoom, getRoom, listRooms, deleteRoom };
+module.exports = {
+  createRoom, getRoom, joinRoom, leaveRoom,
+  broadcast, getMemberList, applySync, getVirtualTime,
+};
